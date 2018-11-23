@@ -1,0 +1,23 @@
+Para compilar
+	MAKE
+
+Programas disponívies
+
+	put_client - Cliente Unix Socket que gera as entradas a serem
+armazenadas. 
+
+	get_client - Cliente Unix Socket que gera requisições de consulta.
+Todas as requisições realizadas são supostamente válidas e existentes. A
+taxa de envio de requisições começa baixa e aumenta durante o tempo.
+
+	casanova - Implementação usando apenas duas threads, uma para
+cada cliente. A biblioteca utilizada GHashTable. Você não deve usar esta
+mesma biblioteca no seu programa. 
+
+	casanova.h - Cabeçalho com estruturas comuns aos três programas.
+
+Sugestão para execução:
+
+time ./casanova & ./put_client & ./get_client 
+
+
