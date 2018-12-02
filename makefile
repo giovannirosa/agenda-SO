@@ -1,30 +1,48 @@
 CC = gcc
-CFLAGS = -O3  -Wall -D_REENTRANT
+INCLUDES = -I/usr/include/glib-2.0 $(shell pkg-config --cflags --libs glib-2.0) -lpthread -lcrypto
+CFLAGS = -Wall -O3 -D_REENTRANT -D_GNU_SOURCE
+PROGRAM_NAME := casanova
+MAIN_PROGRAM := src/$(PROGRAM_NAME).c
 
-all: casanova put_client get_client  locking.o hash.o
 
-casanova: casanova.c casanova.h locking.o hash.o
-	$(CC) $(CFLAGS) -o casanova casanova.c locking.o hash.o  -I /usr/include/glib-2.0 $(shell pkg-config --cflags --libs glib-2.0) -lpthread  -lcrypto
+MODULES   := locking hash
+SRC_DIR   := $(addprefix src/,$(MODULES))
+BUILD_DIR := $(addprefix build/,$(MODULES))
 
-hash.o: hash.c hash.h
-	$(CC) $(CFLAGS) -c hash.c  
+SRC       := $(foreach sdir,$(SRC_DIR),$(wildcard $(sdir)/*.c))
+OBJ       := $(patsubst src/%.c,build/%.o,$(SRC))
+#INCLUDES  := $(addprefix -I,$(SRC_DIR))
 
-locking.o: locking.c locking.h
-	$(CC) $(CFLAGS) -c locking.c  
+vpath %.c $(SRC_DIR)
+vpath %.h $(SRC_DIR)
 
-put_client: put_client.c casanova.h
-	$(CC) $(CFLAGS) -o put_client put_client.c
+define make-goal
+$1/%.o: %.c %.h
+	$(CC) $(CFLAGS) -c $$< -o $$@
+endef
 
-get_client: get_client.c casanova.h
-	$(CC) $(CFLAGS) -o get_client get_client.c
+.PHONY: all checkdirs clean purge
 
-run:
-	time ./put_client &
-	time ./get_client &
-	time ./casanova
-	
+all: checkdirs $(PROGRAM_NAME) put_client get_client
 
-clean: 
-	rm -f *.o *.*~ *~ put_client get_client casanova 
-	rm -f *.o *.*~ *~ telefones 
-       
+$(PROGRAM_NAME): $(OBJ) $(MAIN_PROGRAM) src/casanova.h
+	$(CC) $(CFLAGS) $(MAIN_PROGRAM) -o $@ $(OBJ) $(INCLUDES)
+
+put_client: src/put_client.c src/casanova.h
+	$(CC) $(CFLAGS) -o put_client src/put_client.c
+
+get_client: src/get_client.c src/casanova.h
+	$(CC) $(CFLAGS) -o get_client src/get_client.c
+
+checkdirs: $(BUILD_DIR)
+
+$(BUILD_DIR):
+	@mkdir -p $@
+
+clean:
+	@rm -rf build
+	@rm -f *.o *.*~ *~ telefones server_get_socket server_put_socket
+	@rm -rf $(PROGRAM_NAME) put_client get_client
+
+$(foreach bdir,$(BUILD_DIR),$(eval $(call make-goal,$(bdir))))
+
