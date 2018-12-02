@@ -46,7 +46,7 @@ int main(void)
     }
 
     printf("PUT CONNECTED.\n");
-    tsleep = 1000; // INCREASED from 500 to 1000
+    tsleep = 500;
     for (x=0;x<DATASET_SIZE;x+=N_MESSAGE )
     {
 	/* aux é apenas para repetir o número de alterações para cada mensagem */
@@ -83,7 +83,7 @@ int main(void)
 	   exit(1);
        	}
 
-	if ( (completed >40 /*INCREASED from 30 to 40*/ && x%(100-completed+1) == 0 ) )
+	if ( (completed >30 && x%(100-completed+1) <= 10 ) )
         {
         	usleep (tsleep);
 	}

@@ -60,7 +60,7 @@ int main(void)
 
     printf("WAITING \n");
 
-    tsleep = 100000; // INCREASED from 10.000 to 100.000
+    tsleep = 10000;
     for (x = 0; x < DATASET_SIZE; x += N_MESSAGE)
     {
         for (aux = 0; aux < 10; aux++)
