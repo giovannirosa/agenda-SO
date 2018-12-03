@@ -12,7 +12,6 @@
 char charset[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccccccddddddddddddddddddddddddddeeeeeeeeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffgggggggggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiijjjjjjkkkkkkklllllllllllllllllllllllllllmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmnnnnnnnnnnnnnnnnnnnnnnnoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooopppppppppppppppppppppppppqqrrrrrrrrrrrrrrrrsssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttuuuuuuuuuuuuuuvvvvvvwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwxyyyyyyyyyyyyyyyyz                                                    AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBCCCCCCCCCCCCCCCCCCCCCCCCCDDDDDDDDDDDDDDDDDDDDDDDDDDEEEEEEEEEEEEEEEEEEEEFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFGGGGGGGGGGGGGGGGGGHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIJJJJJJJJJKKKKLLLLLLLLLLLLLLLLLLLLLLLLMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMNNNNNNNNNNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOPPPPPPPPPPPPPPPPPPQQQQRRRRRRRRRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSSSSSSSSSSSTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYZZ                  ";
 #define N_PUT_THREADS 4
 #define N_GET_THREADS 8
-#define OUTPUTFILE "telefones"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,47 +34,47 @@ char charset[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 /* Chave utilizada, obviamente não é seguro coloca-la aqui em
    plain text, mas isso é apenas um toy */
 unsigned char *key = (unsigned char *)"01234567890123456789012345678901";
-extern int encrypt2(EVP_CIPHER_CTX *, unsigned char *, int , unsigned char *);
+extern int encrypte(EVP_CIPHER_CTX *, unsigned char *, int , unsigned char *);
 extern int decrypt(EVP_CIPHER_CTX *, unsigned char *, int , unsigned char *);
 
 
-typedef struct tele_thread_get{
-  pthread_t thread;
-  sem_t sem;
-  int busy;
-  int m_avail;
+typedef struct getThread{
+  pthread_t thread; // thread rodando get
+  sem_t sem;  // semáforo
+  int busy; //  se está sendo usada
+  int m_avail;  // numero de mensagens inteiras
   char actual_get[ID_SIZE];
   sem_t sem_getahead;
   int waitting;
-  char buffer[GET_MESSAGE_SIZE*273];
-} tele_thread_get;
+  char buffer[GET_MESSAGE_SIZE*273]; // mensagem
+} getThread;
 
 
-typedef struct tele_thread_put{
+typedef struct putThread{
   pthread_t thread;
   sem_t sem;
   int busy;
   int m_avail;
   char actual_put[ID_SIZE];
-  char buffer[PUT_MESSAGE_SIZE*170];
-} tele_thread_put;
+  char buffer[PUT_MESSAGE_SIZE*170]; // mensagem
+} putThread;
 
-tele_thread_get get_threads[N_GET_THREADS];
-tele_thread_put put_threads[N_PUT_THREADS];
+getThread getThreads[N_GET_THREADS];
+putThread putThreads[N_PUT_THREADS];
 
-int getOver;
-int putOver;
+int getOver; // sinaliza se GET finalizou
+int putOver; // sinaliza se PUT finalizou
 
-sem_t mutex_wakeup;
-sem_t sem_all_put_threads_busy;
-sem_t sem_all_get_threads_busy;
-sem_t mutex_file;
+sem_t mutexWakeUp;
+sem_t putThreadsUsed;
+sem_t getThreadsUsed;
+sem_t mutexOutput;
 
 FILE *fp;
 
 void bestPossiblePut(char *bestPut);
 void wakeupGets(void);
 void put_entries();
-void store(tele_thread_put *self);
+void store(putThread *self);
 void get_entries();
-void retrieve(tele_thread_get *self);
+void retrieve(getThread *self);

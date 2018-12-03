@@ -5,12 +5,6 @@ void handleErrors(void)
   ERR_print_errors_fp(stderr);
 }
 
-void get_entries();
-void put_entries();
-
-// GHashTable* hash;
-// struct DataItem* hashTable[SIZE];
-
 sem_t sem_mutex_crypt;
 sem_t sem_mutex_hash;
 sem_t mutex_actual;
@@ -28,7 +22,7 @@ int main(int argc, char *argv[])
 {
 
   hashTable = initHash(HASH_SIZE);
-  sem_init(&mutex_wakeup, 0, 1);
+  sem_init(&mutexWakeUp, 0, 1);
   /* inicialização */
   ERR_load_crypto_strings();
   OpenSSL_add_all_algorithms();
@@ -74,9 +68,9 @@ void bestPossiblePut(char *bestPut)
 
   for (i = 0; i < N_PUT_THREADS; ++i)
   {
-    if (strncmp(bestPut, put_threads[i].actual_put, ID_SIZE - 1) > 0)
+    if (strncmp(bestPut, putThreads[i].actual_put, ID_SIZE - 1) > 0)
     {
-      memcpy(bestPut, put_threads[i].actual_put, ID_SIZE - 1);
+      memcpy(bestPut, putThreads[i].actual_put, ID_SIZE - 1);
       count++;
     }
   }
@@ -88,16 +82,16 @@ void wakeupGets(void)
   char bestPut[ID_SIZE - 1];
   bestPossiblePut(bestPut);
 
-  sem_wait(&mutex_wakeup);
+  sem_wait(&mutexWakeUp);
   for (i = 0; i < N_GET_THREADS; ++i)
   {
-    if ((strncmp(get_threads[i].actual_get, bestPut, ID_SIZE - 1) <= 0) && (get_threads[i].waitting))
+    if ((strncmp(getThreads[i].actual_get, bestPut, ID_SIZE - 1) <= 0) && (getThreads[i].waitting))
     {
-      get_threads[i].waitting = FALSE;
-      sem_post(&get_threads[i].sem_getahead);
+      getThreads[i].waitting = FALSE;
+      sem_post(&getThreads[i].sem_getahead);
     }
   }
-  sem_post(&mutex_wakeup);
+  sem_post(&mutexWakeUp);
 }
 
 void put_entries()
@@ -106,7 +100,7 @@ void put_entries()
   struct sockaddr_un server_address;
   struct sockaddr_un client_address;
   socklen_t addr_size;
-  tele_thread_put *actual_thread = NULL;
+  putThread *actual_thread = NULL;
   putOver = FALSE;
 
   int i, count = 0, bytesrw = 0;
@@ -114,7 +108,7 @@ void put_entries()
 
   for (i = 0; i < N_PUT_THREADS; ++i)
   {
-    put_threads[i].buffer[PUT_MESSAGE_SIZE] = '\0';
+    putThreads[i].buffer[PUT_MESSAGE_SIZE] = '\0';
   }
 
   /* inicializa SOCK_STREAM */
@@ -133,7 +127,7 @@ void put_entries()
   fprintf(stderr, "PUT CONNECTED\n");
 
   // INICIALIZA THREADS
-  sem_init(&sem_all_put_threads_busy, 0, N_PUT_THREADS);
+  sem_init(&putThreadsUsed, 0, N_PUT_THREADS);
   pthread_attr_t attr;
   cpu_set_t cpus;
   pthread_attr_init(&attr);
@@ -141,23 +135,25 @@ void put_entries()
 
   for (i = 0; i < N_PUT_THREADS; ++i)
   {
-    put_threads[i].busy = FALSE;
-    sem_init(&put_threads[i].sem, 0, 0);
-    memset(put_threads[i].actual_put, 0, ID_SIZE - 1);
+    putThreads[i].busy = FALSE;
+    sem_init(&putThreads[i].sem, 0, 0);
+    memset(putThreads[i].actual_put, 0, ID_SIZE - 1);
     CPU_ZERO(&cpus);
-    CPU_SET((i + (int)(numberOfProcessors * 0.5)) % numberOfProcessors, &cpus);
+    CPU_SET(i%numberOfProcessors, &cpus);
+    // define afinidade da thread para determinado núcleo
     pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-    pthread_create(&put_threads[i].thread, &attr, (void *)&store, &put_threads[i]);
+    pthread_create(&putThreads[i].thread, &attr, (void *)&store, &putThreads[i]);
   }
 
   do
   {
-    sem_wait(&sem_all_put_threads_busy);
+    sem_wait(&putThreadsUsed);
     for (i = 0; i < N_PUT_THREADS; ++i)
     {
-      if (!put_threads[i].busy)
+      if (!putThreads[i].busy)
       {
-        actual_thread = &put_threads[i];
+        // escolhe uma thread livre
+        actual_thread = &putThreads[i];
       }
     }
 
@@ -197,26 +193,26 @@ void put_entries()
 
   for (i = 0; i < N_PUT_THREADS; ++i)
   {
-    memset(put_threads[i].actual_put, 0xFF, ID_SIZE - 1);
+    memset(putThreads[i].actual_put, 0xFF, ID_SIZE - 1);
   }
 
   for (i = 0; i < N_GET_THREADS; ++i)
   {
-    get_threads[i].waitting = FALSE;
-    sem_post(&get_threads[i].sem_getahead);
+    getThreads[i].waitting = FALSE;
+    sem_post(&getThreads[i].sem_getahead);
   }
   //Mata todas as threads
   // int threads_busy;
   for (i = 0; i < N_PUT_THREADS; ++i)
   {
-    sem_post(&put_threads[i].sem);
-    pthread_join(put_threads[i].thread, NULL);
+    sem_post(&putThreads[i].sem);
+    pthread_join(putThreads[i].thread, NULL);
   }
 
   fprintf(stderr, "PUT EXITED, %d MESSAGES RECEIVED \n", count);
 }
 
-void store(tele_thread_put *self)
+void store(putThread *self)
 {
   unsigned char telefone_crypt[CRYPTEDSIZE];
   unsigned char nome_crypt[CRYPTEDSIZE];
@@ -234,8 +230,8 @@ void store(tele_thread_put *self)
 
     for (n = 0; n < self->m_avail; n++)
     {
-      encrypt2(ctx_crypt, (unsigned char *)self->buffer + (n * PUT_MESSAGE_SIZE) + ID_SIZE, NOME_SIZE, nome_crypt);
-      encrypt2(ctx_crypt, (unsigned char *)(self->buffer + (n * PUT_MESSAGE_SIZE) + ID_SIZE + NOME_SIZE), FONE_SIZE, telefone_crypt);
+      encrypte(ctx_crypt, (unsigned char *)self->buffer + (n * PUT_MESSAGE_SIZE) + ID_SIZE, NOME_SIZE, nome_crypt);
+      encrypte(ctx_crypt, (unsigned char *)(self->buffer + (n * PUT_MESSAGE_SIZE) + ID_SIZE + NOME_SIZE), FONE_SIZE, telefone_crypt);
 
       //Verifica se por algum motivo já foi inserido o dado
       unsigned char *telefone_hash = searchHash(hashTable, nome_crypt);
@@ -254,7 +250,7 @@ void store(tele_thread_put *self)
     wakeupGets();
 
     self->busy = FALSE;
-    sem_post(&sem_all_put_threads_busy);
+    sem_post(&putThreadsUsed);
   }
 
   EVP_CIPHER_CTX_free(ctx_crypt);
@@ -266,7 +262,7 @@ void get_entries()
   struct sockaddr_un server_address;
   struct sockaddr_un client_address;
   socklen_t addr_size;
-  tele_thread_get *actual_thread = NULL;
+  getThread *actual_thread = NULL;
   getOver = FALSE;
 
   int count = 0, read_ret, read_total, m_avail, bytesrw;
@@ -292,8 +288,8 @@ void get_entries()
   }
 
   // INICIALIZA THREADS
-  sem_init(&sem_all_get_threads_busy, 0, N_GET_THREADS);
-  sem_init(&mutex_file, 0, 1);
+  sem_init(&getThreadsUsed, 0, N_GET_THREADS);
+  sem_init(&mutexOutput, 0, 1);
   pthread_attr_t attr;
   cpu_set_t cpus;
   pthread_attr_init(&attr);
@@ -301,25 +297,27 @@ void get_entries()
 
   for (i = 0; i < N_GET_THREADS; ++i)
   {
-    get_threads[i].busy = FALSE;
-    sem_init(&get_threads[i].sem, 0, 0);
-    sem_init(&get_threads[i].sem_getahead, 0, 0);
-    memset(get_threads[i].actual_get, 0, ID_SIZE - 1);
-    get_threads[i].waitting = FALSE;
+    getThreads[i].busy = FALSE;
+    sem_init(&getThreads[i].sem, 0, 0);
+    sem_init(&getThreads[i].sem_getahead, 0, 0);
+    memset(getThreads[i].actual_get, 0, ID_SIZE - 1);
+    getThreads[i].waitting = FALSE;
     CPU_ZERO(&cpus);
-    CPU_SET(i % numberOfProcessors, &cpus);
+    CPU_SET(i%numberOfProcessors, &cpus);
+    // define afinidade da thread para determinado núcleo
     pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-    pthread_create(&get_threads[i].thread, &attr, (void *)&retrieve, &get_threads[i]);
+    pthread_create(&getThreads[i].thread, &attr, (void *)&retrieve, &getThreads[i]);
   }
 
   do
   {
-    sem_wait(&sem_all_get_threads_busy);
+    sem_wait(&getThreadsUsed);
     for (i = 0; i < N_GET_THREADS; ++i)
     {
-      if (!get_threads[i].busy)
+      if (!getThreads[i].busy)
       {
-        actual_thread = &get_threads[i];
+        // escolhe thread livre  
+        actual_thread = &getThreads[i];
       }
     }
 
@@ -361,16 +359,17 @@ void get_entries()
   //Mata todas as threads
   for (i = 0; i < N_GET_THREADS; ++i)
   {
-    sem_post(&get_threads[i].sem);
-    pthread_join(get_threads[i].thread, NULL);
+    sem_post(&getThreads[i].sem);
+    pthread_join(getThreads[i].thread, NULL);
+    free(&getThreads[i]);
   }
   fclose(fp);
   fprintf(stderr, "GET EXITED, %d MESSAGES RECEIVED\n", count);
 }
 
-void retrieve(tele_thread_get *self)
+void retrieve(getThread *self)
 {
-  int telefoneint, n;
+  // int telefoneint, n;
   unsigned char *telefone_crypt;
   unsigned char telefone_decrypt[FONE_SIZE + 1];
   unsigned char nome_crypt[CRYPTEDSIZE + 1];
@@ -391,7 +390,7 @@ void retrieve(tele_thread_get *self)
     if (getOver)
       return;
 
-    for (n = 0; n < self->m_avail; n++)
+    for (int n = 0; n < self->m_avail; n++)
     {
       memcpy(self->actual_get, self->buffer + n * GET_MESSAGE_SIZE, ID_SIZE - 1);
 
@@ -402,7 +401,7 @@ void retrieve(tele_thread_get *self)
         sem_wait(&self->sem_getahead);
       }
 
-      encrypt2(ctx_crypt, (unsigned char *)self->buffer + (n * GET_MESSAGE_SIZE) + ID_SIZE, NOME_SIZE, nome_crypt);
+      encrypte(ctx_crypt, (unsigned char *)self->buffer + (n * GET_MESSAGE_SIZE) + ID_SIZE, NOME_SIZE, nome_crypt);
 
       //Verifica se por algum motivo já foi inserido o dado
       telefone_crypt = searchHash(hashTable, nome_crypt);
@@ -416,16 +415,15 @@ void retrieve(tele_thread_get *self)
       {
         decrypt(ctx_decrypt, telefone_crypt, CRYPTEDSIZE, telefone_decrypt);
         telefone_decrypt[FONE_SIZE] = '\0';
-        /* se quiser ver as entradas descomente */
-        telefoneint = atoi((char *)telefone_decrypt);
-        sem_wait(&mutex_file);
-        fwrite((void *)&telefoneint, sizeof(int), 1, fp);
-        sem_post(&mutex_file);
+        // telefoneint = atoi((char *)telefone_decrypt);
+        sem_wait(&mutexOutput);
+        fwrite((void *)&telefone_decrypt, sizeof(int), 1, fp);
+        sem_post(&mutexOutput);
       }
     }
 
     self->busy = FALSE;
-    sem_post(&sem_all_get_threads_busy);
+    sem_post(&getThreadsUsed);
   }
 
   EVP_CIPHER_CTX_free(ctx_crypt);
@@ -435,7 +433,7 @@ void retrieve(tele_thread_get *self)
 /* seguem as funções de criptografia. Eu estou usando elas no sabor não
    threadsafe, por isso o mutex. Na versão paralela é de se cogitar o
    uso thread safe desta mesma biblioteca */
-inline int encrypt2(EVP_CIPHER_CTX *ctxe, unsigned char *plaintext, int plaintext_len, unsigned char *ciphertext)
+inline int encrypte(EVP_CIPHER_CTX *ctxe, unsigned char *plaintext, int plaintext_len, unsigned char *ciphertext)
 {
 
   int len;
