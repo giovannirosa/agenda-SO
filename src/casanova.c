@@ -361,7 +361,6 @@ void get_entries()
   {
     sem_post(&getThreads[i].sem);
     pthread_join(getThreads[i].thread, NULL);
-    free(&getThreads[i]);
   }
   fclose(fp);
   fprintf(stderr, "GET EXITED, %d MESSAGES RECEIVED\n", count);
