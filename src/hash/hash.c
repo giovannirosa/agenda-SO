@@ -4,6 +4,11 @@
 #include <stdbool.h>
 #include "hash.h"
 
+/**
+ * Função hash para gerar a chave
+ * hashTable: hash
+ * key: chave
+ */
 unsigned int hashCode(hash hashTable, unsigned char key[CRYPTEDSIZE]) {
   unsigned int magic = 0x9f3a5d;
 
@@ -16,6 +21,10 @@ unsigned int hashCode(hash hashTable, unsigned char key[CRYPTEDSIZE]) {
   return magic;
 }
 
+/**
+ * Inicializa hash alocando memória
+ * tam: tamanho da hash
+ */
 hash initHash(unsigned int tam) {
    hash hashTable = (hash)malloc(sizeof(struct hash));
    hashMutex = (sem_t*)malloc(sizeof(sem_t)*tam);
@@ -36,6 +45,12 @@ hash initHash(unsigned int tam) {
    return hashTable;
 }
 
+/**
+ * Insere valor na hash
+ * hashTable: hash
+ * key: chave
+ * value: valor a ser inserido
+ */
 void insertHash(hash hashTable, unsigned char key[CRYPTEDSIZE], unsigned char value[CRYPTEDSIZE]) {
    unsigned int index = hashCode(hashTable, key);
    noh auxNoh = hashTable->lista[index];
@@ -55,6 +70,11 @@ void insertHash(hash hashTable, unsigned char key[CRYPTEDSIZE], unsigned char va
    sem_post(&hashMutex[index]);
 }
 
+/**
+ * Busca na hash valor com chave especificada
+ * hashTable: hash
+ * chave: chave a ser buscada
+ */
 unsigned char* searchHash(hash hashTable, unsigned char chave[CRYPTEDSIZE]) {
     unsigned int index = hashCode(hashTable, chave);
     noh auxNoh = hashTable->lista[index];
@@ -72,6 +92,11 @@ unsigned char* searchHash(hash hashTable, unsigned char chave[CRYPTEDSIZE]) {
     return NULL;
 }
 
+/**
+ * Mostra conteúdo da hash
+ * hashTable: hash
+ * showValues: mostrar valores ou apenas tamanho utilizado
+ */
 void displayHash(hash hashTable, int showVaues) {
    noh auxNoh;
    unsigned int i, cont;
@@ -96,6 +121,10 @@ void displayHash(hash hashTable, int showVaues) {
    }
 }
 
+/**
+ * Libera memória alocada da hash
+ * hashTable: hash
+ */
 void liberaHash(hash hashTable) {
    for(int i = 0; i < hashTable->tam; i++) {
       noh auxNoh = hashTable->lista[i];

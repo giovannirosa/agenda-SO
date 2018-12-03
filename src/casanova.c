@@ -5,34 +5,16 @@ void handleErrors(void)
   ERR_print_errors_fp(stderr);
 }
 
-sem_t sem_mutex_crypt;
-sem_t sem_mutex_hash;
-sem_t mutex_actual;
-sem_t sem_getahead;
-
-char actual_put[ID_SIZE];
-char actual_get[ID_SIZE];
-int getahead;
-
-EVP_CIPHER_CTX *ctxp, *ctxge, *ctxgd;
-
 hash hashTable;
 
 int main(int argc, char *argv[])
 {
-
   hashTable = initHash(HASH_SIZE);
   sem_init(&mutexWakeUp, 0, 1);
   /* inicialização */
   ERR_load_crypto_strings();
   OpenSSL_add_all_algorithms();
   OPENSSL_config(NULL);
-  if (!(ctxp = EVP_CIPHER_CTX_new()))
-    handleErrors();
-  if (!(ctxge = EVP_CIPHER_CTX_new()))
-    handleErrors();
-  if (!(ctxgd = EVP_CIPHER_CTX_new()))
-    handleErrors();
 
   pthread_t thread1, thread2;
   thread_setup();
@@ -60,32 +42,39 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-void bestPossiblePut(char *bestPut)
+/**
+ * Encontra qual o último PUT feito verificando o relógio lógico de cada thread
+ * lastPut: relógio lógico do último PUT
+ */
+void findLastPut(char *lastPut)
 {
   int i, count = 0;
 
-  memset(bestPut, 0xFF, ID_SIZE - 1);
+  memset(lastPut, 0xFF, ID_SIZE - 1);
 
   for (i = 0; i < N_PUT_THREADS; ++i)
   {
-    if (strncmp(bestPut, putThreads[i].actual_put, ID_SIZE - 1) > 0)
+    if (strncmp(lastPut, putThreads[i].actual_put, ID_SIZE - 1) > 0)
     {
-      memcpy(bestPut, putThreads[i].actual_put, ID_SIZE - 1);
+      memcpy(lastPut, putThreads[i].actual_put, ID_SIZE - 1);
       count++;
     }
   }
 }
 
-void wakeupGets(void)
+/**
+ * Acorda threads GET que estejam eventualmente dormindo
+ */
+void wakeupGets()
 {
-  int i;
-  char bestPut[ID_SIZE - 1];
-  bestPossiblePut(bestPut);
+  char lastPut[ID_SIZE - 1];
+  findLastPut(lastPut);
 
   sem_wait(&mutexWakeUp);
-  for (i = 0; i < N_GET_THREADS; ++i)
+  for (int i = 0; i < N_GET_THREADS; ++i)
   {
-    if ((strncmp(getThreads[i].actual_get, bestPut, ID_SIZE - 1) <= 0) && (getThreads[i].waitting))
+	// se existe uma thread GET com relógio lógico menor do que o último PUT, acorda
+    if ((strncmp(getThreads[i].actual_get, lastPut, ID_SIZE - 1) <= 0) && (getThreads[i].waitting))
     {
       getThreads[i].waitting = FALSE;
       sem_post(&getThreads[i].sem_getahead);
@@ -94,6 +83,10 @@ void wakeupGets(void)
   sem_post(&mutexWakeUp);
 }
 
+/**
+ * Função inicial PUT, inicia a pool de threads, le dados do socket e 
+ * gerencia as threads para inserir na hash 
+ */
 void put_entries()
 {
   int server_sockfd, client_sockfd;
@@ -126,11 +119,12 @@ void put_entries()
   client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_address, &addr_size);
   fprintf(stderr, "PUT CONNECTED\n");
 
-  // INICIALIZA THREADS
+  // inicia threads
   sem_init(&putThreadsUsed, 0, N_PUT_THREADS);
   pthread_attr_t attr;
   cpu_set_t cpus;
   pthread_attr_init(&attr);
+  // le o numero de processadores do pc atual
   int numberOfProcessors = sysconf(_SC_NPROCESSORS_ONLN);
 
   for (i = 0; i < N_PUT_THREADS; ++i)
@@ -147,6 +141,7 @@ void put_entries()
 
   do
   {
+	// pool de threads PUT
     sem_wait(&putThreadsUsed);
     for (i = 0; i < N_PUT_THREADS; ++i)
     {
@@ -173,10 +168,11 @@ void put_entries()
       read_total += read_ret;
     } while (read_total < PUT_MESSAGE_SIZE * m_avail && read_ret > 0);
 
+	// reseta variável m_avail
     if (read_ret <= 0)
       m_avail = 0;
 
-    /* armazena todas as entradas lidas */
+	// libera a thread atual para rodar método store
     if (read_ret > 0)
     {
       actual_thread->m_avail = m_avail;
@@ -189,20 +185,23 @@ void put_entries()
 
   close(client_sockfd);
 
+  // sinaliza que o PUT terminou
   putOver = TRUE;
 
+  // reseta relógio lógico das threads PUT
   for (i = 0; i < N_PUT_THREADS; ++i)
   {
     memset(putThreads[i].actual_put, 0xFF, ID_SIZE - 1);
   }
 
+  // libera as threads GET que estão eventualmente esperando
   for (i = 0; i < N_GET_THREADS; ++i)
   {
     getThreads[i].waitting = FALSE;
     sem_post(&getThreads[i].sem_getahead);
   }
-  //Mata todas as threads
-  // int threads_busy;
+
+  // libera as threads PUT e finaliza
   for (i = 0; i < N_PUT_THREADS; ++i)
   {
     sem_post(&putThreads[i].sem);
@@ -212,6 +211,10 @@ void put_entries()
   fprintf(stderr, "PUT EXITED, %d MESSAGES RECEIVED \n", count);
 }
 
+/**
+ * Faz a inserção dos dados na hash
+ * self: thread atual PUT
+ */
 void store(putThread *self)
 {
   unsigned char telefone_crypt[CRYPTEDSIZE];
@@ -222,33 +225,43 @@ void store(putThread *self)
   if (!(ctx_crypt = EVP_CIPHER_CTX_new()))
     handleErrors();
 
+  // roda enquanto PUT não terminar
   while (!putOver)
   {
+	// aguarda sinal para começar PUT
     sem_wait(&self->sem);
+	// saída rápida
     if (putOver)
       return;
 
     for (n = 0; n < self->m_avail; n++)
     {
+	  // encripta nome para usar como chave na hash
       encrypte(ctx_crypt, (unsigned char *)self->buffer + (n * PUT_MESSAGE_SIZE) + ID_SIZE, NOME_SIZE, nome_crypt);
-      encrypte(ctx_crypt, (unsigned char *)(self->buffer + (n * PUT_MESSAGE_SIZE) + ID_SIZE + NOME_SIZE), FONE_SIZE, telefone_crypt);
+      // encripta telefone para inserir na hash
+	    encrypte(ctx_crypt, (unsigned char *)(self->buffer + (n * PUT_MESSAGE_SIZE) + ID_SIZE + NOME_SIZE), FONE_SIZE, telefone_crypt);
 
-      //Verifica se por algum motivo já foi inserido o dado
+      // verifica se por algum motivo já foi inserido o dado
       unsigned char *telefone_hash = searchHash(hashTable, nome_crypt);
 
       if (telefone_hash)
       {
+		// ERRO: se foi inserido
         fprintf(stderr, "ERRO: %.16s:", self->buffer + (n * PUT_MESSAGE_SIZE) + ID_SIZE);
         BIO_dump_fp(stderr, (const char *)nome_crypt, CRYPTEDSIZE);
         continue;
       }
+	  // insere na hash
       insertHash(hashTable, nome_crypt, telefone_crypt);
 
+	  // atualiza relógio lógico da thread PUT atual
       memcpy(self->actual_put, self->buffer + n * PUT_MESSAGE_SIZE, ID_SIZE - 1);
     }
 
+	// acorda threads GET que eventualmente estejam dormindo
     wakeupGets();
 
+    // libera thread PUT na pool
     self->busy = FALSE;
     sem_post(&putThreadsUsed);
   }
@@ -256,6 +269,10 @@ void store(putThread *self)
   EVP_CIPHER_CTX_free(ctx_crypt);
 }
 
+/**
+ * Função inicial GET, inicia a pool de threads, le dados do socket e 
+ * gerencia as threads para buscar na hash 
+ */
 void get_entries()
 {
   int server_sockfd, client_sockfd, i;
@@ -287,12 +304,13 @@ void get_entries()
     exit(1);
   }
 
-  // INICIALIZA THREADS
+  // inicia threads
   sem_init(&getThreadsUsed, 0, N_GET_THREADS);
   sem_init(&mutexOutput, 0, 1);
   pthread_attr_t attr;
   cpu_set_t cpus;
   pthread_attr_init(&attr);
+  // le o numero de processadores do pc atual
   int numberOfProcessors = sysconf(_SC_NPROCESSORS_ONLN);
 
   for (i = 0; i < N_GET_THREADS; ++i)
@@ -311,6 +329,7 @@ void get_entries()
 
   do
   {
+	// pool de threads GET
     sem_wait(&getThreadsUsed);
     for (i = 0; i < N_GET_THREADS; ++i)
     {
@@ -338,16 +357,15 @@ void get_entries()
       read_total += read_ret;
     } while (read_total < GET_MESSAGE_SIZE * m_avail && read_ret > 0);
 
+	// reseta variável m_avail
     if (read_ret <= 0)
-    {
       m_avail = 0;
-    }
 
+	// libera a thread atual para rodar método retrieve
     if (read_ret > 0)
     {
       actual_thread->m_avail = m_avail;
       actual_thread->busy = TRUE;
-
       sem_post(&actual_thread->sem);
     }
 
@@ -355,8 +373,11 @@ void get_entries()
   } while (read_ret > 0);
 
   close(client_sockfd);
+
+  // sinaliza que o GET terminou
   getOver = TRUE;
-  //Mata todas as threads
+
+  // libera as threads GET e finaliza
   for (i = 0; i < N_GET_THREADS; ++i)
   {
     sem_post(&getThreads[i].sem);
@@ -366,14 +387,17 @@ void get_entries()
   fprintf(stderr, "GET EXITED, %d MESSAGES RECEIVED\n", count);
 }
 
+/**
+ * Faz a busca dos dados na hash e escreve no arquivo de saída
+ * self: thread atual GET
+ */
 void retrieve(getThread *self)
 {
-  // int telefoneint, n;
   unsigned char *telefone_crypt;
   unsigned char telefone_decrypt[FONE_SIZE + 1];
   unsigned char nome_crypt[CRYPTEDSIZE + 1];
   EVP_CIPHER_CTX *ctx_crypt, *ctx_decrypt;
-  char actual_put[ID_SIZE];
+  char lastPut[ID_SIZE];
 
   telefone_decrypt[FONE_SIZE] = '\0';
   nome_crypt[CRYPTEDSIZE] = '\0';
@@ -383,44 +407,55 @@ void retrieve(getThread *self)
   if (!(ctx_decrypt = EVP_CIPHER_CTX_new()))
     handleErrors();
 
+  // roda enquanto GET não terminar
   while (!getOver)
   {
+	// aguarda sinal para começar PUT
     sem_wait(&self->sem);
+	// saída rápida
     if (getOver)
       return;
 
     for (int n = 0; n < self->m_avail; n++)
     {
+	  // atualiza relógio lógico da thread GET atual
       memcpy(self->actual_get, self->buffer + n * GET_MESSAGE_SIZE, ID_SIZE - 1);
 
-      bestPossiblePut(actual_put);
-      if (strncmp(self->actual_get, actual_put, ID_SIZE - 1) > 0)
+      findLastPut(lastPut);
+	  // dorme se o relógio lógico da thread GET atual for maior do que o relógio lógico do último PUT
+      if (strncmp(self->actual_get, lastPut, ID_SIZE - 1) > 0)
       {
         self->waitting = TRUE;
         sem_wait(&self->sem_getahead);
       }
 
+	  // encripta nome para usar de chave e buscar na hash
       encrypte(ctx_crypt, (unsigned char *)self->buffer + (n * GET_MESSAGE_SIZE) + ID_SIZE, NOME_SIZE, nome_crypt);
 
-      //Verifica se por algum motivo já foi inserido o dado
+      // busca telefone na hash
       telefone_crypt = searchHash(hashTable, nome_crypt);
 
       if (!telefone_crypt)
       {
+        // ERRO: telefone não encontrado
         BIO_dump_fp(stdout, (const char *)nome_crypt, CRYPTEDSIZE);
         continue;
       }
       else
       {
+		// decripta telefone retornado da hash
         decrypt(ctx_decrypt, telefone_crypt, CRYPTEDSIZE, telefone_decrypt);
         telefone_decrypt[FONE_SIZE] = '\0';
-        // telefoneint = atoi((char *)telefone_decrypt);
+		// faz o cast para inteiro
+        int telefoneint = atoi((char *)telefone_decrypt);
         sem_wait(&mutexOutput);
-        fwrite((void *)&telefone_decrypt, sizeof(int), 1, fp);
+		// escreve no arquivo de saída
+        fwrite((void *)&telefoneint, sizeof(int), 1, fp);
         sem_post(&mutexOutput);
       }
     }
 
+	// sinaliza que terminou de usar a thread e a torna livre
     self->busy = FALSE;
     sem_post(&getThreadsUsed);
   }
