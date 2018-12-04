@@ -5,13 +5,13 @@ PROGRAM_NAME := casanova
 MAIN_PROGRAM := src/$(PROGRAM_NAME).c
 
 
-MODULES   := locking hash
-SRC_DIR   := $(addprefix src/,$(MODULES))
+MODULES	:= locking hash
+SRC_DIR	:= $(addprefix src/,$(MODULES))
 BUILD_DIR := $(addprefix build/,$(MODULES))
 
-SRC       := $(foreach sdir,$(SRC_DIR),$(wildcard $(sdir)/*.c))
-OBJ       := $(patsubst src/%.c,build/%.o,$(SRC))
-#INCLUDES  := $(addprefix -I,$(SRC_DIR))
+SRC		:= $(foreach sdir,$(SRC_DIR),$(wildcard $(sdir)/*.c))
+OBJ		:= $(patsubst src/%.c,build/%.o,$(SRC))
+#INCLUDES	:= $(addprefix -I,$(SRC_DIR))
 
 vpath %.c $(SRC_DIR)
 vpath %.h $(SRC_DIR)

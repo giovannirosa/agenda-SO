@@ -1,0 +1,2 @@
+para compilar use make
+para executar use ./run.sh

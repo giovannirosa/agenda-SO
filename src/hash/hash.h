@@ -4,40 +4,42 @@
 #define SIZE 1000*1000*20
 /* as entradas são pequenas, o resultado da criptografia terá 
    sempre 16 bytes */
-#define CRYPTEDSIZE  16
+#define CRYPTEDSIZE	16
 #define FALSE 0
 #define TRUE 1
 
 #include <semaphore.h>
 
-typedef struct noh *noh;
-typedef struct hash *hash;
+typedef struct linked_list_t *linked_list_t;
+typedef struct hash_table_t *hash_table_t;
 
-struct noh {
-   unsigned char chave[CRYPTEDSIZE]; // chave da hash
-   unsigned char cont[CRYPTEDSIZE]; // conteúdo da hash
-   noh ant, prox; // lista duplamente encadeada
+struct linked_list_t {
+	unsigned char key[CRYPTEDSIZE]; // chave da tabela hash
+	unsigned char value[CRYPTEDSIZE]; // conteúdo da tabela hash
+	linked_list_t previous, next; // lista duplamente encadeada
 };
 
-struct hash {
-   unsigned int tam; // tamanho da hash
-   noh *lista; // posições da hash
+struct hash_table_t {
+	unsigned int size; // tamanho da hash
+	linked_list_t *list; // posições da hash
 };
 
-sem_t *hashMutex; // vetor de mutex para cada posição da hash
+sem_t *hash_table_mutex; // vetor de mutex para cada posição da hash
 
 /**
  * Função hash para gerar a chave
  * hashTable: hash
  * key: chave
  */
-unsigned int hashCode(hash hashTable, unsigned char key[CRYPTEDSIZE]);
+unsigned int hash_table_index(hash_table_t hashTable, unsigned char key[CRYPTEDSIZE]);
+
 
 /**
  * Inicializa hash alocando memória
  * tam: tamanho da hash
  */
-hash initHash(unsigned int tam);
+hash_table_t hash_table_malloc(unsigned int size);
+
 
 /**
  * Insere valor na hash
@@ -45,26 +47,28 @@ hash initHash(unsigned int tam);
  * key: chave
  * value: valor a ser inserido
  */
-void insertHash(hash hashTable, unsigned char key[CRYPTEDSIZE], unsigned char value[CRYPTEDSIZE]);
+void hash_table_put(hash_table_t hashTable, unsigned char key[CRYPTEDSIZE], unsigned char value[CRYPTEDSIZE]);
+
 
 /**
  * Busca na hash valor com chave especificada
  * hashTable: hash
  * chave: chave a ser buscada
  */
-unsigned char* searchHash(hash hashTable, unsigned char chave[CRYPTEDSIZE]);
+unsigned char* hash_table_get(hash_table_t hashTable, unsigned char key[CRYPTEDSIZE]);
+
 
 /**
  * Mostra conteúdo da hash
  * hashTable: hash
  * showValues: mostrar valores ou apenas tamanho utilizado
  */
-void displayHash(hash hashTable, int showVaues);
+void hash_table_print(hash_table_t hashTable, int showVaues);
 
 /**
  * Libera memória alocada da hash
  * hashTable: hash
  */
-void liberaHash(hash hashTable);
+void hash_table_free(hash_table_t hashTable);
 
 #endif
